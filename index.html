@@ -38,15 +38,23 @@
         .tab-inactive { color: #64748b; border-bottom: 2px solid transparent; }
         .tab-inactive:hover { color: #0284c7; border-bottom: 2px solid #e0f2fe; }
         .hide { display: none; }
+
+        /* カスタムスクロールバー (横スクロール領域用) */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
         
-        /* スクロールバーを隠す (タブ領域用) */
-        .hide-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .hide-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
 
         /* Loading Spinner */
         .loader {
@@ -325,7 +333,7 @@
                 </div>
 
                 <!-- タブ -->
-                <div class="flex border-b border-gray-300 mb-6 overflow-x-auto hide-scrollbar">
+                <div class="flex border-b border-gray-300 mb-6 overflow-x-auto custom-scrollbar">
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'entries' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('entries')"><i class="fas fa-user-plus mr-1"></i>エントリー入力</button>
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'seeding' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('seeding')"><i class="fas fa-list-ol mr-1"></i>組分け・確認</button>
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'results' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('results')"><i class="fas fa-stopwatch mr-1"></i>結果入力</button>
@@ -635,7 +643,7 @@
 
         // 共通コンポーネント
         const renderCategoryTabs = () => {
-            let html = `<div class="flex overflow-x-auto pb-3 mb-4 hide-scrollbar space-x-2 snap-x">`;
+            let html = `<div class="flex overflow-x-auto pb-3 mb-4 custom-scrollbar space-x-2 snap-x">`;
             CATEGORIES.forEach(cat => {
                 const isActive = state.selectedCategory === cat;
                 const btnClass = isActive 
