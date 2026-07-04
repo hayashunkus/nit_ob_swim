@@ -84,7 +84,7 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Firebase Initialization
@@ -107,9 +107,6 @@
         } catch (e) {
             console.error("Firebase init error:", e);
         }
-
-        // Google Auth Provider
-        const provider = new GoogleAuthProvider();
 
         // Constants & State
         const CATEGORIES = [
@@ -229,58 +226,32 @@
 
             navTitle.onclick = () => window.navigate('home');
 
+            if (!user) {
+                appDiv.innerHTML = `<div class="flex justify-center items-center h-64"><div class="loader"></div><p class="ml-4 text-sky-600 font-semibold">データを取得中...</p></div>`;
+                navActions.innerHTML = ``;
+                return;
+            }
+
             // 閲覧（パブリック）ビューの表示ロジック
             if (state.view === 'public') {
-                if (!user) {
-                    appDiv.innerHTML = `<div class="flex justify-center items-center h-64"><div class="loader"></div><p class="ml-4 text-sky-600 font-semibold">データを取得中...</p></div>`;
-                    return;
-                }
                 if (!state.currentEvent) {
                     appDiv.innerHTML = `<div class="text-center p-10"><p>イベントが見つかりません。</p><button class="mt-4 bg-sky-500 text-white px-4 py-2 rounded" onclick="window.navigate('home')">ホームに戻る</button></div>`;
                     return;
                 }
-                navActions.innerHTML = ``; // 閲覧画面はログアウトボタン等を出さない
+                navActions.innerHTML = ``; // 閲覧画面はアクションボタンなし
                 appDiv.innerHTML = renderPublic();
                 return;
             }
 
             // 管理（ホーム・管理）ビューの表示ロジック
-            // 未ログイン、または匿名ユーザーの場合はGoogleログインを要求する
-            if (!user || user.isAnonymous) {
-                navActions.innerHTML = '';
-                appDiv.innerHTML = `
-                    <div class="flex flex-col justify-center items-center h-80 bg-white rounded-xl shadow-md p-6 max-w-md mx-auto mt-10">
-                        <div class="bg-sky-100 p-4 rounded-full mb-4">
-                            <i class="fas fa-user-shield text-4xl text-sky-600"></i>
-                        </div>
-                        <h2 class="text-2xl font-bold text-sky-800 mb-2">管理者ログイン</h2>
-                        <p class="text-gray-500 mb-8 text-center text-sm">イベントの作成やエントリー管理を行うには、<br>Googleアカウントでのログインが必要です。</p>
-                        <button onclick="loginWithGoogle()" class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold py-3 px-6 rounded-lg shadow-sm flex items-center transition w-full justify-center">
-                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5 mr-3" alt="Google">
-                            Googleでログイン
-                        </button>
-                        <div class="mt-6 text-xs text-gray-400">※閲覧のみの場合は、共有されたURLから直接アクセスしてください。</div>
-                    </div>
-                `;
-                return;
-            }
-
-            // Googleログイン済みの時の共通アクション（ログアウトボタン）
-            const logoutBtnHtml = `
-                <button class="bg-white text-sky-600 hover:bg-sky-50 px-3 py-1.5 text-xs sm:text-sm rounded-full shadow-sm border border-sky-200 transition flex items-center" onclick="logout()">
-                    <i class="fas fa-sign-out-alt mr-1"></i> ログアウト
-                </button>
-            `;
-
             if (state.view === 'home') {
-                navActions.innerHTML = logoutBtnHtml;
+                navActions.innerHTML = ``; // ホームもアクションボタンなし
                 appDiv.innerHTML = renderHome();
             } else if (state.view === 'admin' && state.currentEvent) {
                 navActions.innerHTML = `
-                    <button class="bg-sky-800 text-white px-3 py-1.5 text-xs sm:text-sm rounded-full shadow transition mr-2 flex items-center" onclick="window.navigate('public', '${state.eventId}')">
+                    <button class="bg-sky-800 text-white px-3 py-1.5 text-xs sm:text-sm rounded-full shadow transition flex items-center" onclick="window.navigate('public', '${state.eventId}')">
                         <i class="fas fa-eye mr-1"></i> 閲覧ビュー
                     </button>
-                    ${logoutBtnHtml}
                 `;
                 appDiv.innerHTML = renderAdmin();
             } else {
@@ -861,27 +832,6 @@
             document.getElementById('cancel-edit-btn').classList.add('hide');
         };
         
-        // Auth Functions
-        window.loginWithGoogle = async () => {
-            try {
-                await signInWithPopup(auth, provider);
-            } catch (error) {
-                console.error("Login failed:", error);
-                alert("ログインに失敗しました。");
-            }
-        };
-
-        window.logout = async () => {
-            if (confirm("ログアウトしますか？")) {
-                try {
-                    await signOut(auth);
-                    window.navigate('home');
-                } catch (error) {
-                    console.error("Logout failed:", error);
-                }
-            }
-        };
-
         // Form submits and actions using global scope for event delegation
         document.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1081,28 +1031,22 @@
         const initApp = async () => {
             parseUrl();
             
-            // プレビュー環境用（エディタ内）のログイン維持
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token && !auth.currentUser) {
-                try { await signInWithCustomToken(auth, __initial_auth_token); } catch(e){}
-            }
-
-            onAuthStateChanged(auth, async (u) => {
-                user = u;
-                
-                // 閲覧画面を開いた時、未ログインなら匿名ログインを実行
-                if (state.view === 'public' && !user) {
-                    try {
-                        await signInAnonymously(auth);
-                    } catch (err) {
-                        console.error("Anonymous auth error", err);
-                    }
-                    return; // ログイン完了後に再度onAuthStateChangedが呼ばれるためここでリターン
+            const initAuth = async () => {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try { await signInWithCustomToken(auth, __initial_auth_token); } catch(e){}
+                } else {
+                    try { await signInAnonymously(auth); } catch(e){ console.error("Anonymous auth error", e); }
                 }
+            };
 
+            await initAuth();
+
+            onAuthStateChanged(auth, (u) => {
+                user = u;
                 if (user) {
                     setupListeners();
                 } else {
-                    render(); // 未ログインで管理画面の場合はログイン画面を描画
+                    render();
                 }
             });
         };
