@@ -93,7 +93,7 @@
         
         // ご自身のFirebase設定に書き換え
         let firebaseConfig = {
-            apiKey: "AIzaSyCvGYuEqo0P8LgxW0oB2Yr3qAYfwag68ro", // ※公開時にご自身の実際のAPIキーに書き換えてください
+            apiKey: "ーーーーーー", // ※公開時にご自身の実際のAPIキーに書き換えてください
             authDomain: "nit-ob-swim.firebaseapp.com",
             projectId: "nit-ob-swim",
             storageBucket: "nit-ob-swim.firebasestorage.app",
@@ -468,10 +468,15 @@
         const renderAdminSeeding = () => {
             let html = `
                 <div class="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <p class="text-sm text-gray-600 leading-relaxed">エントリータイムを元に全種目の組・レーンを自動割り当てします。<br class="hidden sm:block">※事後追加の選手は対象外です。</p>
-                    <button id="seeding-btn" class="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2.5 rounded shadow font-bold w-full sm:w-auto whitespace-nowrap" onclick="executeSeeding()">
-                        <i class="fas fa-cogs mr-1"></i> 組分け実行
-                    </button>
+                    <p class="text-sm text-gray-600 leading-relaxed">自動で組・レーンを割り当てた後、数値を書き換えて「手動修正を保存」で入れ替えが可能です。<br class="hidden sm:block">※事後追加の選手は対象外です。</p>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <button id="save-seeding-btn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded shadow font-bold w-full sm:w-auto whitespace-nowrap transition" onclick="saveManualSeeding()">
+                            <i class="fas fa-save mr-1"></i> 手動修正を保存
+                        </button>
+                        <button id="seeding-btn" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded shadow font-bold w-full sm:w-auto whitespace-nowrap transition" onclick="executeSeeding()">
+                            <i class="fas fa-cogs mr-1"></i> 自動組分け
+                        </button>
+                    </div>
                 </div>
             `;
             html += renderCategoryTabs();
@@ -651,7 +656,7 @@
             if (unseededEntries.length > 0) {
                 if (!isPublic) {
                     html += `<div class="bg-yellow-50 text-yellow-800 p-3 rounded-lg mb-4 border border-yellow-200 text-sm">
-                        <i class="fas fa-exclamation-triangle mr-1"></i> 新しく追加された未組分けの選手が <span class="font-bold">${unseededEntries.length}</span> 名います。上部の「組分け実行」ボタンを押してリストに反映させてください。
+                        <i class="fas fa-exclamation-triangle mr-1"></i> 新しく追加された未組分けの選手が <span class="font-bold">${unseededEntries.length}</span> 名います。上部の「自動組分け」ボタンを押してリストに反映させてください。
                     </div>`;
                 } else {
                     html += `<div class="bg-gray-50 text-gray-500 p-3 rounded-lg mb-4 border border-gray-200 text-sm">
@@ -684,6 +689,7 @@
                             <table class="w-full text-sm text-left min-w-[500px]">
                                 <thead class="text-gray-500 bg-white border-b">
                                     <tr>
+                                        ${!isPublic ? `<th class="p-2.5 text-center w-16">組</th>` : ''}
                                         <th class="p-2.5 text-center w-12">L</th>
                                         <th class="p-2.5">名前</th>
                                         <th class="p-2.5">チーム</th>
@@ -693,12 +699,16 @@
                                 </thead>
                                 <tbody class="divide-y divide-gray-100">
                 `;
-                for (let i = 1; i <= 6; i++) {
+                // 1レーンは非表示とし、2〜6レーンを描画
+                for (let i = 2; i <= 6; i++) {
                     const entry = entriesInHeat.find(e => e.lane === i);
                     if (entry) {
                         html += `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-2.5 text-center font-bold text-sky-700 bg-sky-50/50">${i}</td>
+                            <tr class="hover:bg-gray-50 transition">
+                                ${!isPublic ? `<td class="p-2.5 text-center"><input type="number" class="manual-heat w-12 p-1 text-center border border-gray-300 rounded bg-white text-sm focus:ring focus:ring-sky-300 outline-none" data-id="${entry.id}" value="${entry.heat}"></td>` : ''}
+                                <td class="p-2.5 text-center font-bold text-sky-700 bg-sky-50/50">
+                                    ${!isPublic ? `<input type="number" class="manual-lane w-12 p-1 text-center border border-gray-300 rounded bg-white text-sm focus:ring focus:ring-sky-300 outline-none" data-id="${entry.id}" value="${entry.lane}">` : i}
+                                </td>
                                 <td class="p-2.5 font-medium text-gray-800 text-base whitespace-nowrap">
                                     ${escapeHtml(entry.name)} 
                                     ${entry.isStar ? '<i class="fas fa-star text-yellow-400 text-xs ml-1" title="注目選手"></i>' : ''}
@@ -711,8 +721,9 @@
                     } else {
                         html += `
                             <tr>
-                                <td class="p-2.5 text-center text-gray-300 bg-gray-50/50">${i}</td>
-                                <td class="p-2.5 text-gray-300 italic" colspan="${!isPublic ? 4 : 3}">空き</td>
+                                ${!isPublic ? `<td class="p-2.5 text-center">-</td>` : ''}
+                                <td class="p-2.5 text-center text-gray-400 bg-gray-50/50">${i}</td>
+                                <td class="p-2.5 text-gray-400 italic" colspan="${!isPublic ? 4 : 3}">空き</td>
                             </tr>
                         `;
                     }
@@ -966,9 +977,59 @@
             }
         });
 
+        // Manual Seeding Save
+        window.saveManualSeeding = async () => {
+            const heatInputs = document.querySelectorAll('.manual-heat');
+            const updates = [];
+            
+            heatInputs.forEach(input => {
+                const id = input.dataset.id;
+                const heat = parseInt(input.value);
+                const laneInput = document.querySelector(`.manual-lane[data-id="${id}"]`);
+                const lane = parseInt(laneInput.value);
+                
+                if (isNaN(heat) || isNaN(lane)) return;
+
+                const entry = state.currentEntries.find(e => e.id === id);
+                // 元のデータから変更があった場合のみ更新対象とする
+                if (entry && (entry.heat !== heat || entry.lane !== lane)) {
+                    updates.push({ id, heat, lane });
+                }
+            });
+            
+            if (updates.length === 0) {
+                alert('変更されたデータがありません。');
+                return;
+            }
+            
+            if (!confirm(`${updates.length}件の変更を保存して閲覧ページに反映しますか？`)) return;
+            
+            const btn = document.getElementById('save-seeding-btn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+            
+            try {
+                // Firestoreを一括で更新
+                for (let u of updates) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', u.id), {
+                        heat: u.heat,
+                        lane: u.lane
+                    });
+                }
+                alert('変更を保存しました！');
+            } catch (err) {
+                console.error(err);
+                alert('保存に失敗しました。');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        };
+
         // Seeding Algorithm
         window.executeSeeding = async () => {
-            if(!confirm('全種目の組分けを実行しますか？現在の組・レーンデータは上書きされます。')) return;
+            if(!confirm('全種目の自動組分けを実行しますか？（※これまでの手動修正は上書きされます）')) return;
             
             const updates = [];
             CATEGORIES.forEach(cat => {
@@ -985,8 +1046,9 @@
                     return timeB - timeA;
                 });
 
-                const laneOrder = [4, 5, 3, 6, 2, 1];
-                const lanesCount = 6;
+                // 2,3,4,5,6レーンのみ使用、速い順で4,5,3,6,2
+                const laneOrder = [4, 5, 3, 6, 2];
+                const lanesCount = 5;
                 let currentHeatNum = 1;
 
                 for (let i = 0; i < catEntries.length; i += lanesCount) {
@@ -1022,14 +1084,14 @@
                     const ref = doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', u.id);
                     await updateDoc(ref, { heat: u.heat, lane: u.lane });
                 }
-                alert('組分けが完了しました！');
+                alert('自動組分けが完了しました！');
             } catch (err) {
                 console.error(err);
                 alert('エラーが発生しました。');
             } finally {
                 if(btn) {
                     btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-cogs mr-1"></i> 組分け実行';
+                    btn.innerHTML = '<i class="fas fa-cogs mr-1"></i> 自動組分け';
                 }
                 render();
             }
