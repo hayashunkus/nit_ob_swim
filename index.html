@@ -77,7 +77,7 @@
     <main id="app" class="flex-grow max-w-6xl w-full mx-auto p-4 sm:p-6 overflow-hidden">
         <div class="flex justify-center items-center h-64">
             <div class="loader"></div>
-            <p class="ml-4 text-sky-600 font-semibold">読み込み中...</p>
+            <p class="ml-4 text-sky-600 font-semibold" id="loading-text">データを取得中...</p>
         </div>
     </main>
 
@@ -91,21 +91,28 @@
         let app, auth, db, user;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'swim-entry-app';
         
+        // ご自身のFirebase設定に書き換え
+        let firebaseConfig = {
+            apiKey: "AIzaSyCvGYuEqo0P8LgxW0oB2Yr3qAYfwag68ro", // ※公開時にご自身の実際のAPIキーに書き換えてください
+            authDomain: "nit-ob-swim.firebaseapp.com",
+            projectId: "nit-ob-swim",
+            storageBucket: "nit-ob-swim.firebasestorage.app",
+            messagingSenderId: "80812995377",
+            appId: "1:80812995377:web:dceead6c498c2da24c7610"
+        };
+
+        // プレビュー環境での実行時、またはAPIキーが未設定の場合のフォールバック
+        if ((firebaseConfig.apiKey === "ーーーーーー" || firebaseConfig.apiKey === "dummy") && typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+        }
+
         try {
-            // ご自身のFirebase設定に書き換え
-            const firebaseConfig = {
-                apiKey: "AIzaSyCvGYuEqo0P8LgxW0oB2Yr3qAYfwag68ro", // ※公開時にご自身の実際のAPIキーに書き換えてください
-                authDomain: "nit-ob-swim.firebaseapp.com",
-                projectId: "nit-ob-swim",
-                storageBucket: "nit-ob-swim.firebasestorage.app",
-                messagingSenderId: "80812995377",
-                appId: "1:80812995377:web:dceead6c498c2da24c7610"
-            };
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
         } catch (e) {
             console.error("Firebase init error:", e);
+            document.getElementById('loading-text').innerText = "初期化エラー: 設定を確認してください";
         }
 
         // Constants & State
@@ -226,6 +233,7 @@
 
             navTitle.onclick = () => window.navigate('home');
 
+            // もしユーザーが未取得ならローディング表示
             if (!user) {
                 appDiv.innerHTML = `<div class="flex justify-center items-center h-64"><div class="loader"></div><p class="ml-4 text-sky-600 font-semibold">データを取得中...</p></div>`;
                 navActions.innerHTML = ``;
@@ -1031,28 +1039,31 @@
         const initApp = async () => {
             parseUrl();
             
-            const initAuth = async () => {
+            try {
+                // 自動的に匿名認証でログインする (プレビュー環境ではカスタムトークンを優先)
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    try { await signInWithCustomToken(auth, __initial_auth_token); } catch(e){}
+                    await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
-                    try { await signInAnonymously(auth); } catch(e){ console.error("Anonymous auth error", e); }
+                    await signInAnonymously(auth);
                 }
-            };
+            } catch (error) {
+                console.error("Auth error:", error);
+                document.getElementById('loading-text').innerText = "認証エラー: FirebaseのAPIキーまたは設定を確認してください。";
+                return; // ここでエラーになったら処理を止める
+            }
 
-            await initAuth();
-
+            // 認証状態の監視
             onAuthStateChanged(auth, (u) => {
                 user = u;
                 if (user) {
-                    setupListeners();
+                    setupListeners(); // データの取得を開始（この中でrender()が呼ばれて画面が出る）
                 } else {
-                    render();
+                    render(); // 通常は匿名ログインしているので呼ばれない
                 }
             });
         };
 
         const setupListeners = () => {
-            // 既存のリスナーがあれば解除（多重登録防止）
             if (state.unsubscribeEvents) state.unsubscribeEvents();
             if (state.unsubscribeEntries) state.unsubscribeEntries();
 
@@ -1062,7 +1073,10 @@
                     updateCurrentState();
                     render();
                 },
-                (err) => console.error("Events fetch error:", err)
+                (err) => {
+                    console.error("Events fetch error:", err);
+                    document.getElementById('loading-text').innerText = "データ読み込みエラー: Firestoreのルール(テストモード等)を確認してください。";
+                }
             );
 
             state.unsubscribeEntries = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'swim_entries'), 
