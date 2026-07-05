@@ -849,7 +849,7 @@
                         <td class="p-3 font-medium text-base text-gray-800 whitespace-nowrap">
                             ${escapeHtml(res.name)} 
                             ${res.isStar ? '<i class="fas fa-star text-yellow-400 text-xs ml-1"></i>' : ''}
-                            ${res.isLateEntry ? '<span class="text-[10px] text-white bg-sky-300 px-1.5 py-0.5 rounded ml-1 shadow-sm font-normal">事後</span>' : ''}
+                            ${res.isLateEntry ? '<span class="text-[10px] text-white bg-sky-300 px-1.5 py-0.5 rounded ml-1 shadow-sm font-normal">突発</span>' : ''}
                         </td>
                         <td class="p-3 text-gray-600 truncate max-w-[120px]">${escapeHtml(res.team)}</td>
                         <td class="p-3 text-center font-bold ${timeClass} text-lg tracking-wider">
@@ -1064,7 +1064,7 @@
                 }
             }
 
-            // Add Late Entry (事後参加)
+            // Add Late Entry (突発参加)
             if (e.target.id === 'add-late-entry-form') {
                 const data = {
                     eventId: state.eventId,
