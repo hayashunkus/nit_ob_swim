@@ -192,6 +192,58 @@
             return rawSec;
         };
 
+        // 順位・得点計算ロジック
+        const getCategoryResults = (category) => {
+            const catEntries = state.currentEntries.filter(e => e.category === category && e.resultTime && e.resultTime.trim() !== '');
+            
+            let results = catEntries.map(e => {
+                const finalTimeSec = calcHandicapTime(e);
+                let isDQ = false;
+                
+                // 1分間レースの特別ルール: 60秒を超えたら失格
+                if (category === "1分間レース" && finalTimeSec > 60.00) {
+                    isDQ = true;
+                }
+                
+                return { ...e, finalTimeSec, isDQ };
+            });
+
+            // ソート処理
+            if (category === "1分間レース") {
+                results.sort((a, b) => {
+                    if (a.isDQ && b.isDQ) return a.finalTimeSec - b.finalTimeSec;
+                    if (a.isDQ) return 1;  // 失格は後ろへ
+                    if (b.isDQ) return -1;
+                    return b.finalTimeSec - a.finalTimeSec; // 60秒以内で大きい（1分に近い）順
+                });
+            } else {
+                results.sort((a, b) => a.finalTimeSec - b.finalTimeSec); // 通常は速い順
+            }
+
+            let currentRank = 1;
+            let previousTime = -1;
+
+            results.forEach((res, index) => {
+                if (res.isDQ) {
+                    res.rank = null;
+                    res.points = 0;
+                    return;
+                }
+
+                // タイムが同じ場合は同順位とする
+                if (res.finalTimeSec !== previousTime) {
+                    currentRank = index + 1;
+                    previousTime = res.finalTimeSec;
+                }
+                
+                res.rank = currentRank;
+                // 1位:8点, 2位:7点 ... 8位:1点, 9位以下:0点
+                res.points = Math.max(0, 9 - currentRank);
+            });
+
+            return results;
+        };
+
         // Routing Logic
         const parseUrl = () => {
             const params = new URLSearchParams(window.location.search);
@@ -337,6 +389,7 @@
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'entries' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('entries')"><i class="fas fa-user-plus mr-1"></i>エントリー入力</button>
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'seeding' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('seeding')"><i class="fas fa-list-ol mr-1"></i>組分け・確認</button>
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'results' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('results')"><i class="fas fa-stopwatch mr-1"></i>結果入力</button>
+                    <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'teamRank' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('teamRank')"><i class="fas fa-flag mr-1"></i>総合得点</button>
                 </div>
             `;
 
@@ -346,6 +399,8 @@
                 html += renderAdminSeeding();
             } else if (state.adminTab === 'results') {
                 html += renderAdminResults();
+            } else if (state.adminTab === 'teamRank') {
+                html += renderTeamRankings();
             }
             return html;
         };
@@ -627,6 +682,7 @@
                 <div class="flex border-b border-gray-300 mb-6 w-full max-w-md">
                     <button class="flex-1 py-3 text-center text-sm sm:text-base ${state.publicTab === 'startlist' ? 'tab-active' : 'tab-inactive'}" onclick="changePublicTab('startlist')"><i class="fas fa-list mr-1"></i>スタートリスト</button>
                     <button class="flex-1 py-3 text-center text-sm sm:text-base ${state.publicTab === 'results' ? 'tab-active' : 'tab-inactive'}" onclick="changePublicTab('results')"><i class="fas fa-trophy mr-1"></i>結果・順位</button>
+                    <button class="px-4 py-3 text-center text-sm sm:text-base ${state.publicTab === 'teamRank' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changePublicTab('teamRank')"><i class="fas fa-flag mr-1"></i>総合得点</button>
                 </div>
             `;
 
@@ -636,8 +692,9 @@
                 html += renderStartListTable(state.selectedCategory, true);
             } else if (state.publicTab === 'results') {
                 html += renderResultsTable(state.selectedCategory);
+            } else if (state.publicTab === 'teamRank') {
+                html += renderTeamRankings();
             }
-
             return html;
         };
 
@@ -744,16 +801,11 @@
         };
 
         const renderResultsTable = (category) => {
-            const catEntries = state.currentEntries.filter(e => e.category === category && e.resultTime && e.resultTime.trim() !== '');
+            const results = getCategoryResults(category);
             
-            if (catEntries.length === 0) {
+            if (results.length === 0) {
                 return `<div class="bg-white p-8 rounded-xl shadow text-center text-gray-500 border border-gray-100">まだ結果が入力されていません。</div>`;
             }
-
-            const results = catEntries.map(e => {
-                const finalTimeSec = calcHandicapTime(e);
-                return { ...e, finalTimeSec };
-            }).sort((a, b) => a.finalTimeSec - b.finalTimeSec);
 
             let html = `
                 <div class="bg-white rounded-xl shadow w-full overflow-hidden border border-sky-100">
@@ -771,19 +823,14 @@
                             <tbody class="divide-y divide-gray-100">
             `;
 
-            let currentRank = 1;
-            let previousTime = -1;
-
-            results.forEach((res, index) => {
-                if (res.finalTimeSec !== previousTime) {
-                    currentRank = index + 1;
-                    previousTime = res.finalTimeSec;
-                }
+            results.forEach((res) => {
+                let rankDisplay = res.isDQ ? `<span class="text-red-500 font-bold text-xs">DQ</span>` : res.rank;
                 
-                let rankDisplay = currentRank;
-                if (currentRank === 1) rankDisplay = `<i class="fas fa-medal text-yellow-400 text-lg drop-shadow-sm"></i>`;
-                else if (currentRank === 2) rankDisplay = `<i class="fas fa-medal text-gray-400 text-lg drop-shadow-sm"></i>`;
-                else if (currentRank === 3) rankDisplay = `<i class="fas fa-medal text-amber-600 text-lg drop-shadow-sm"></i>`;
+                if (!res.isDQ) {
+                    if (res.rank === 1) rankDisplay = `<i class="fas fa-medal text-yellow-400 text-lg drop-shadow-sm"></i>`;
+                    else if (res.rank === 2) rankDisplay = `<i class="fas fa-medal text-gray-400 text-lg drop-shadow-sm"></i>`;
+                    else if (res.rank === 3) rankDisplay = `<i class="fas fa-medal text-amber-600 text-lg drop-shadow-sm"></i>`;
+                }
 
                 const isOB = res.userType === 'ob';
                 const hc = isOB ? parseInt(res.years) || 0 : 0;
@@ -792,16 +839,24 @@
                     originalTimeHtml += `<br><span class="text-red-400 text-[10px]">(-${hc}秒)</span>`;
                 }
 
+                let timeClass = res.isDQ ? "text-red-500 line-through" : "text-sky-700";
+                let dqBadge = res.isDQ ? `<div class="text-red-500 text-[10px] mt-0.5">失格(1分超過)</div>` : '';
+                let pointsBadge = res.points > 0 ? `<div class="text-sky-500 font-bold text-xs mt-0.5">+${res.points}pt</div>` : '';
+
                 html += `
-                    <tr class="hover:bg-sky-50 transition">
+                    <tr class="hover:bg-sky-50 transition ${res.isDQ ? 'bg-red-50/30' : ''}">
                         <td class="p-3 text-center font-bold text-gray-700">${rankDisplay}</td>
                         <td class="p-3 font-medium text-base text-gray-800 whitespace-nowrap">
                             ${escapeHtml(res.name)} 
                             ${res.isStar ? '<i class="fas fa-star text-yellow-400 text-xs ml-1"></i>' : ''}
-                            ${res.isLateEntry ? '<span class="text-[10px] text-white bg-sky-300 px-1.5 py-0.5 rounded ml-1 shadow-sm font-normal">突発</span>' : ''}
+                            ${res.isLateEntry ? '<span class="text-[10px] text-white bg-sky-300 px-1.5 py-0.5 rounded ml-1 shadow-sm font-normal">事後</span>' : ''}
                         </td>
                         <td class="p-3 text-gray-600 truncate max-w-[120px]">${escapeHtml(res.team)}</td>
-                        <td class="p-3 text-center font-bold text-sky-700 text-lg tracking-wider">${formatTime(res.finalTimeSec)}</td>
+                        <td class="p-3 text-center font-bold ${timeClass} text-lg tracking-wider">
+                            ${formatTime(res.finalTimeSec)}
+                            ${dqBadge}
+                            ${pointsBadge}
+                        </td>
                         <td class="p-3 text-right text-xs leading-tight">${originalTimeHtml}</td>
                     </tr>
                 `;
@@ -810,9 +865,100 @@
             html += `</tbody></table></div></div>
                 <div class="mt-4 p-3 bg-sky-50 text-sky-800 text-xs rounded border border-sky-100 flex items-start">
                     <i class="fas fa-info-circle mt-0.5 mr-2 text-sky-500"></i> 
-                    <span>OBの最終タイムは、記録から (OB歴年数 × 1秒) を引いたタイムとなります。</span>
+                    <span>OBの最終タイムは、記録から (OB歴年数 × 1秒) を引いたタイムとなります。<br>1位:8点, 2位:7点... がチームの総合得点に加算されます。</span>
                 </div>
             `;
+            return html;
+        };
+
+        const renderTeamRankings = () => {
+            const teamScores = {};
+            
+            // 全種目の結果を集計
+            CATEGORIES.forEach(cat => {
+                const catResults = getCategoryResults(cat);
+                catResults.forEach(res => {
+                    if (!res.team) return;
+                    
+                    if (!teamScores[res.team]) {
+                        teamScores[res.team] = { name: res.team, total: 0, relayTotal: 0 };
+                    }
+                    
+                    teamScores[res.team].total += res.points;
+                    
+                    if (cat === "100mMR" || cat === "100mFR") {
+                        teamScores[res.team].relayTotal += res.points;
+                    }
+                });
+            });
+
+            // 配列に変換してソート (総合得点降順 -> 同点時はリレー得点降順)
+            const rankingArray = Object.values(teamScores).sort((a, b) => {
+                if (b.total !== a.total) {
+                    return b.total - a.total; 
+                }
+                return b.relayTotal - a.relayTotal;
+            });
+
+            let html = `
+                <div class="bg-white rounded-xl shadow w-full overflow-hidden border border-sky-100 mb-6">
+                    <div class="bg-sky-50 px-4 py-3 font-bold text-sky-800 border-b border-sky-200 text-sm sm:text-base flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                        <span><i class="fas fa-flag-checkered mr-2"></i>チーム対抗 総合得点</span>
+                        <span class="text-xs font-normal text-sky-600 bg-white px-2 py-1 rounded border border-sky-200 shadow-sm w-fit">※同点時はリレー(MR/FR)の合計点で判定</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left min-w-[400px]">
+                            <thead class="text-gray-500 bg-white border-b">
+                                <tr>
+                                    <th class="p-3 text-center w-16">順位</th>
+                                    <th class="p-3">チーム</th>
+                                    <th class="p-3 text-center font-bold text-sky-600">総合得点</th>
+                                    <th class="p-3 text-center text-xs">リレー得点<br>(タイブレーク)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+            `;
+
+            if (rankingArray.length === 0) {
+                html += `<tr><td colspan="4" class="p-8 text-center text-gray-500">まだ得点データがありません。</td></tr>`;
+            } else {
+                let currentRank = 1;
+                let prevTotal = -1;
+                let prevRelay = -1;
+
+                rankingArray.forEach((team, idx) => {
+                    // 同点・同リレー点数の場合は同じ順位にする
+                    if (team.total !== prevTotal || team.relayTotal !== prevRelay) {
+                        currentRank = idx + 1;
+                        prevTotal = team.total;
+                        prevRelay = team.relayTotal;
+                    }
+
+                    let rankDisplay = currentRank;
+                    if (currentRank === 1) rankDisplay = `<i class="fas fa-trophy text-yellow-500 text-xl drop-shadow-sm"></i>`;
+                    else if (currentRank === 2) rankDisplay = `<i class="fas fa-trophy text-gray-400 text-lg drop-shadow-sm"></i>`;
+                    else if (currentRank === 3) rankDisplay = `<i class="fas fa-trophy text-amber-600 text-lg drop-shadow-sm"></i>`;
+
+                    html += `
+                        <tr class="hover:bg-sky-50 transition">
+                            <td class="p-3 text-center font-bold text-gray-700">${rankDisplay}</td>
+                            <td class="p-3 font-bold text-gray-800 text-lg">${escapeHtml(team.name)}</td>
+                            <td class="p-3 text-center font-bold text-sky-600 text-2xl">${team.total} <span class="text-sm font-normal text-sky-500">pt</span></td>
+                            <td class="p-3 text-center text-gray-500">${team.relayTotal} <span class="text-xs">pt</span></td>
+                        </tr>
+                    `;
+                });
+            }
+
+            html += `</tbody></table></div></div>
+                <div class="mt-4 p-4 bg-sky-50 text-sky-800 text-xs sm:text-sm rounded border border-sky-100 flex flex-col gap-2">
+                    <div class="font-bold border-b border-sky-200 pb-2 mb-1"><i class="fas fa-balance-scale mr-1 text-sky-500"></i> 得点・ルールについて</div>
+                    <div class="flex items-start"><i class="fas fa-check text-sky-400 mt-1 mr-2"></i> 各種目の上位から順に 8点, 7点, 6点, 5点, 4点, 3点, 2点, 1点 がチームに付与されます。</div>
+                    <div class="flex items-start"><i class="fas fa-check text-sky-400 mt-1 mr-2"></i> 9位以下の選手、および失格者は 0点 となります。</div>
+                    <div class="flex items-start"><i class="fas fa-check text-sky-400 mt-1 mr-2"></i> 1分間レースは目標タイム「1:00.00」を 0.01秒 でも超えた時点で失格です。失格者以外の中でタイムがより大きい（1分に近い）人が上位となります。</div>
+                </div>
+            `;
+
             return html;
         };
 
