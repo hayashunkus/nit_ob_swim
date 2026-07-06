@@ -292,6 +292,10 @@
             const navActions = document.getElementById('nav-actions');
             const navTitle = document.getElementById('nav-title');
 
+            // 【追加】再描画前のスクロール位置を記憶
+            const categoryScrollPos = document.getElementById('category-tabs-container')?.scrollLeft || 0;
+            const adminTabsScrollPos = document.getElementById('admin-tabs-container')?.scrollLeft || 0;
+
             navTitle.onclick = () => window.navigate('home');
 
             // もしユーザーが未取得ならローディング表示
@@ -326,6 +330,15 @@
             } else {
                 appDiv.innerHTML = `<div class="text-center p-10"><p>イベントが見つかりません。</p><button class="mt-4 bg-sky-500 text-white px-4 py-2 rounded" onclick="window.navigate('home')">ホームに戻る</button></div>`;
             }
+
+            // 【追加】再描画後にスクロール位置を復元
+            requestAnimationFrame(() => {
+                const newCategoryTabs = document.getElementById('category-tabs-container');
+                if (newCategoryTabs) newCategoryTabs.scrollLeft = categoryScrollPos;
+
+                const newAdminTabs = document.getElementById('admin-tabs-container');
+                if (newAdminTabs) newAdminTabs.scrollLeft = adminTabsScrollPos;
+            });
         };
 
         // --- Render: Home ---
@@ -385,7 +398,7 @@
                 </div>
 
                 <!-- タブ -->
-                <div class="flex border-b border-gray-300 mb-6 overflow-x-auto custom-scrollbar">
+                <div id="admin-tabs-container" class="flex border-b border-gray-300 mb-6 overflow-x-auto custom-scrollbar">
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'entries' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('entries')"><i class="fas fa-user-plus mr-1"></i>エントリー入力</button>
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'seeding' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('seeding')"><i class="fas fa-list-ol mr-1"></i>組分け・確認</button>
                     <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'results' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('results')"><i class="fas fa-stopwatch mr-1"></i>結果入力</button>
@@ -700,7 +713,7 @@
 
         // 共通コンポーネント
         const renderCategoryTabs = () => {
-            let html = `<div class="flex overflow-x-auto pb-3 mb-4 custom-scrollbar space-x-2 snap-x">`;
+            let html = `<div id="category-tabs-container" class="flex overflow-x-auto pb-3 mb-4 custom-scrollbar space-x-2 snap-x">`;
             CATEGORIES.forEach(cat => {
                 const isActive = state.selectedCategory === cat;
                 const btnClass = isActive 
