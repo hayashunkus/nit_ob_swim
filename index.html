@@ -293,6 +293,7 @@
             const navTitle = document.getElementById('nav-title');
 
             const adminTabsScrollPos = document.getElementById('admin-tabs-container')?.scrollLeft || 0;
+            const categoryTabsScrollPos = document.getElementById('category-tabs-container')?.scrollLeft || 0;
 
             navTitle.onclick = () => window.navigate('home');
 
@@ -311,12 +312,10 @@
                 }
                 navActions.innerHTML = ``; // 閲覧画面はアクションボタンなし
                 appDiv.innerHTML = renderPublic();
-                requestAnimationFrame(scrollActiveCategoryIntoView);
-                return;
             }
 
             // 管理（ホーム・管理）ビューの表示ロジック
-            if (state.view === 'home') {
+            else if (state.view === 'home') {
                 navActions.innerHTML = ``; // ホームもアクションボタンなし
                 appDiv.innerHTML = renderHome();
             } else if (state.view === 'admin' && state.currentEvent) {
@@ -330,13 +329,12 @@
                 appDiv.innerHTML = `<div class="text-center p-10"><p>イベントが見つかりません。</p><button class="mt-4 bg-sky-500 text-white px-4 py-2 rounded" onclick="window.navigate('home')">ホームに戻る</button></div>`;
             }
 
-            // 【追加】再描画後にスクロール位置を復元／選択中の種目が見える位置へ移動
-            requestAnimationFrame(() => {
-                const newAdminTabs = document.getElementById('admin-tabs-container');
-                if (newAdminTabs) newAdminTabs.scrollLeft = adminTabsScrollPos;
+            // 再描画直後にスクロール位置を同期的に復元（チラつき防止のため遅延を外す）
+            const newAdminTabs = document.getElementById('admin-tabs-container');
+            if (newAdminTabs) newAdminTabs.scrollLeft = adminTabsScrollPos;
 
-                scrollActiveCategoryIntoView();
-            });
+            const newCategoryTabs = document.getElementById('category-tabs-container');
+            if (newCategoryTabs) newCategoryTabs.scrollLeft = categoryTabsScrollPos;
         };
 
         // --- Render: Home ---
@@ -980,15 +978,6 @@
         window.changeAdminTab = (tab) => { state.adminTab = tab; render(); };
         window.changePublicTab = (tab) => { state.publicTab = tab; render(); };
         window.selectCategory = (cat) => { state.selectedCategory = cat; render(); };
-
-        const scrollActiveCategoryIntoView = () => {
-            const tabContainer = document.getElementById('category-tabs-container');
-            if (!tabContainer) return;
-            const activeButton = tabContainer.querySelector('button.active');
-            if (!activeButton) return;
-
-            activeButton.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
-        };
 
         window.editEntry = (jsonStr) => {
             if (state.currentEvent.isLocked) return;

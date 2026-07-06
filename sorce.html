@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<!-- 20260705 -->
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OB会 水泳エントリーシステム</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        sky: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* カスタムスタイル */
+        body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif; }
+        .tab-active { border-bottom: 2px solid #0ea5e9; color: #0284c7; font-weight: bold; }
+        .tab-inactive { color: #64748b; border-bottom: 2px solid transparent; }
+        .tab-inactive:hover { color: #0284c7; border-bottom: 2px solid #e0f2fe; }
+        .hide { display: none; }
+
+        /* カスタムスクロールバー (横スクロール領域用) */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        
+
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #38bdf8;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-sky-50 text-gray-800 min-h-screen flex flex-col">
+
+    <!-- ナビゲーションバー -->
+    <nav class="bg-sky-600 text-white p-4 shadow-md sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl sm:text-2xl font-bold cursor-pointer flex items-center" id="nav-title">
+                <i class="fas fa-swimmer mr-2"></i>OB会 水泳エントリー
+            </h1>
+            <div id="nav-actions" class="text-sm flex gap-2">
+                <!-- 動的にアクションボタンを配置 -->
+            </div>
+        </div>
+    </nav>
+
+    <!-- メインコンテンツ -->
+    <main id="app" class="flex-grow max-w-6xl w-full mx-auto p-4 sm:p-6 overflow-hidden">
+        <div class="flex justify-center items-center h-64">
+            <div class="loader"></div>
+            <p class="ml-4 text-sky-600 font-semibold" id="loading-text">データを取得中...</p>
+        </div>
+    </main>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase Initialization
+        let app, auth, db, user;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'swim-entry-app';
+        
+        // ご自身のFirebase設定に書き換え
+        let firebaseConfig = {
+            apiKey: "AIzaSyCvGYuEqo0P8LgxW0oB2Yr3qAYfwag68ro", // ※公開時にご自身の実際のAPIキーに書き換えてください
+            authDomain: "nit-ob-swim.firebaseapp.com",
+            projectId: "nit-ob-swim",
+            storageBucket: "nit-ob-swim.firebasestorage.app",
+            messagingSenderId: "80812995377",
+            appId: "1:80812995377:web:dceead6c498c2da24c7610"
+        };
+
+        // プレビュー環境での実行時、またはAPIキーが未設定の場合のフォールバック
+        if ((firebaseConfig.apiKey === "ーーーーーー" || firebaseConfig.apiKey === "dummy") && typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+        }
+
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error("Firebase init error:", e);
+            document.getElementById('loading-text').innerText = "初期化エラー: 設定を確認してください";
+        }
+
+        // Constants & State
+        const CATEGORIES = [
+            "100mMR", "50mFly", "50mBa", "50mBr", "50mFr",
+            "25mFly", "25mBa", "25mBr", "25mFr", "100mIM",
+            "25mビート板", "100mFR", "1分間レース"
+        ];
+        
+        const state = {
+            view: 'home',
+            eventId: null,
+            events: [],
+            allEntries: [],
+            currentEntries: [],
+            currentEvent: null,
+            adminTab: 'entries',
+            publicTab: 'startlist',
+            selectedCategory: CATEGORIES[0],
+            unsubscribeEvents: null,
+            unsubscribeEntries: null
+        };
+
+        // Utility Functions
+        const escapeHtml = (unsafe) => {
+            if(!unsafe) return '';
+            return unsafe.toString()
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        };
+
+        const parseTime = (timeStr) => {
+            if (!timeStr || timeStr.trim() === '') return Infinity;
+            timeStr = timeStr.trim().replace(/。/g, '.').replace(/：/g, ':');
+            const parts = timeStr.split(':');
+            let secs = 0;
+            if (parts.length > 1) {
+                secs += parseInt(parts[0], 10) * 60;
+                secs += parseFloat(parts[1]);
+            } else {
+                secs += parseFloat(parts[0]);
+            }
+            if (isNaN(secs)) return Infinity;
+            return secs;
+        };
+
+        const formatTime = (seconds) => {
+            if (seconds === Infinity || seconds === null || seconds === undefined || isNaN(seconds)) return '';
+            if (seconds < 0) return '-' + formatTime(-seconds);
+            const m = Math.floor(seconds / 60);
+            const s = (seconds % 60).toFixed(2);
+            if (m > 0) {
+                return `${m}:${s < 10 ? '0' : ''}${s}`;
+            }
+            return s;
+        };
+
+        const calcHandicapTime = (entry) => {
+            const rawSec = parseTime(entry.resultTime);
+            if (rawSec === Infinity) return Infinity;
+            if (entry.userType === 'ob') {
+                const hc = parseInt(entry.years) || 0;
+                return rawSec - hc;
+            }
+            return rawSec;
+        };
+
+        // 順位・得点計算ロジック
+        const getCategoryResults = (category) => {
+            const catEntries = state.currentEntries.filter(e => e.category === category && e.resultTime && e.resultTime.trim() !== '');
+            
+            let results = catEntries.map(e => {
+                const finalTimeSec = calcHandicapTime(e);
+                let isDQ = false;
+                
+                // 1分間レースの特別ルール: 60秒を超えたら失格
+                if (category === "1分間レース" && finalTimeSec > 60.00) {
+                    isDQ = true;
+                }
+                
+                return { ...e, finalTimeSec, isDQ };
+            });
+
+            // ソート処理
+            if (category === "1分間レース") {
+                results.sort((a, b) => {
+                    if (a.isDQ && b.isDQ) return a.finalTimeSec - b.finalTimeSec;
+                    if (a.isDQ) return 1;  // 失格は後ろへ
+                    if (b.isDQ) return -1;
+                    return b.finalTimeSec - a.finalTimeSec; // 60秒以内で大きい（1分に近い）順
+                });
+            } else {
+                results.sort((a, b) => a.finalTimeSec - b.finalTimeSec); // 通常は速い順
+            }
+
+            let currentRank = 1;
+            let previousTime = -1;
+
+            results.forEach((res, index) => {
+                if (res.isDQ) {
+                    res.rank = null;
+                    res.points = 0;
+                    return;
+                }
+
+                // タイムが同じ場合は同順位とする
+                if (res.finalTimeSec !== previousTime) {
+                    currentRank = index + 1;
+                    previousTime = res.finalTimeSec;
+                }
+                
+                res.rank = currentRank;
+                // 1位:8点, 2位:7点 ... 8位:1点, 9位以下:0点
+                res.points = Math.max(0, 9 - currentRank);
+            });
+
+            return results;
+        };
+
+        // Routing Logic
+        const parseUrl = () => {
+            const params = new URLSearchParams(window.location.search);
+            state.view = params.get('view') || 'home';
+            state.eventId = params.get('eventId');
+        };
+
+        window.navigate = (view, eventId = null) => {
+            try {
+                const url = new URL(window.location);
+                url.searchParams.set('view', view);
+                if (eventId) {
+                    url.searchParams.set('eventId', eventId);
+                } else {
+                    url.searchParams.delete('eventId');
+                }
+                window.history.pushState({}, '', url);
+            } catch(e) {
+                console.warn("history.pushState is restricted. App memory state updated instead.");
+            }
+            state.view = view;
+            if(eventId) state.eventId = eventId;
+            updateCurrentState();
+            render();
+        };
+
+        window.onpopstate = () => {
+            parseUrl();
+            updateCurrentState();
+            render();
+        };
+
+        const updateCurrentState = () => {
+            if (state.eventId) {
+                state.currentEvent = state.events.find(e => e.id === state.eventId);
+                state.currentEntries = state.allEntries.filter(e => e.eventId === state.eventId);
+            } else {
+                state.currentEvent = null;
+                state.currentEntries = [];
+            }
+        };
+
+        // UI Rendering
+        const render = () => {
+            const appDiv = document.getElementById('app');
+            const navActions = document.getElementById('nav-actions');
+            const navTitle = document.getElementById('nav-title');
+
+            const adminTabsScrollPos = document.getElementById('admin-tabs-container')?.scrollLeft || 0;
+
+            navTitle.onclick = () => window.navigate('home');
+
+            // もしユーザーが未取得ならローディング表示
+            if (!user) {
+                appDiv.innerHTML = `<div class="flex justify-center items-center h-64"><div class="loader"></div><p class="ml-4 text-sky-600 font-semibold">データを取得中...</p></div>`;
+                navActions.innerHTML = ``;
+                return;
+            }
+
+            // 閲覧（パブリック）ビューの表示ロジック
+            if (state.view === 'public') {
+                if (!state.currentEvent) {
+                    appDiv.innerHTML = `<div class="text-center p-10"><p>イベントが見つかりません。</p><button class="mt-4 bg-sky-500 text-white px-4 py-2 rounded" onclick="window.navigate('home')">ホームに戻る</button></div>`;
+                    return;
+                }
+                navActions.innerHTML = ``; // 閲覧画面はアクションボタンなし
+                appDiv.innerHTML = renderPublic();
+                requestAnimationFrame(scrollActiveCategoryIntoView);
+                return;
+            }
+
+            // 管理（ホーム・管理）ビューの表示ロジック
+            if (state.view === 'home') {
+                navActions.innerHTML = ``; // ホームもアクションボタンなし
+                appDiv.innerHTML = renderHome();
+            } else if (state.view === 'admin' && state.currentEvent) {
+                navActions.innerHTML = `
+                    <button class="bg-sky-800 text-white px-3 py-1.5 text-xs sm:text-sm rounded-full shadow transition flex items-center" onclick="window.navigate('public', '${state.eventId}')">
+                        <i class="fas fa-eye mr-1"></i> 閲覧ビュー
+                    </button>
+                `;
+                appDiv.innerHTML = renderAdmin();
+            } else {
+                appDiv.innerHTML = `<div class="text-center p-10"><p>イベントが見つかりません。</p><button class="mt-4 bg-sky-500 text-white px-4 py-2 rounded" onclick="window.navigate('home')">ホームに戻る</button></div>`;
+            }
+
+            // 【追加】再描画後にスクロール位置を復元／選択中の種目が見える位置へ移動
+            requestAnimationFrame(() => {
+                const newAdminTabs = document.getElementById('admin-tabs-container');
+                if (newAdminTabs) newAdminTabs.scrollLeft = adminTabsScrollPos;
+
+                scrollActiveCategoryIntoView();
+            });
+        };
+
+        // --- Render: Home ---
+        const renderHome = () => {
+            let html = `
+                <div class="bg-white rounded-xl shadow-md border-t-4 border-sky-400 p-6 mb-6">
+                    <h2 class="text-xl font-bold text-sky-800 mb-4"><i class="fas fa-calendar-plus mr-2"></i>新しいイベントを作成</h2>
+                    <form id="create-event-form" class="flex flex-col sm:flex-row gap-4">
+                        <input type="text" id="new-event-name" placeholder="例: 2026年度OB会水泳の部エントリーリスト" class="flex-grow border border-sky-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-400" required>
+                        <button type="submit" class="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded shadow whitespace-nowrap">作成</button>
+                    </form>
+                </div>
+                
+                <h2 class="text-xl font-bold text-sky-800 mb-4 px-2"><i class="fas fa-list mr-2"></i>イベント一覧</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            `;
+            
+            if (state.events.length === 0) {
+                html += `<div class="col-span-full text-center text-gray-500 py-8">イベントがありません。</div>`;
+            } else {
+                state.events.sort((a,b) => {
+                    const timeA = a.createdAt?.seconds || Infinity;
+                    const timeB = b.createdAt?.seconds || Infinity;
+                    return timeB - timeA;
+                }).forEach(ev => {
+                    html += `
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition duration-200 flex flex-col justify-between">
+                            <h3 class="text-lg font-bold text-gray-800 mb-4 break-words leading-tight">${escapeHtml(ev.name)}</h3>
+                            <div class="flex gap-2 mt-auto">
+                                <button class="flex-1 bg-sky-500 hover:bg-sky-600 text-white py-2 rounded text-sm shadow" onclick="window.navigate('admin', '${ev.id}')">
+                                    <i class="fas fa-edit mr-1"></i> 管理
+                                </button>
+                                <button class="flex-1 bg-white border border-sky-500 text-sky-600 hover:bg-sky-50 py-2 rounded text-sm shadow" onclick="window.navigate('public', '${ev.id}')">
+                                    <i class="fas fa-users mr-1"></i> 閲覧
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            html += `</div>`;
+            return html;
+        };
+
+        // --- Render: Admin ---
+        const renderAdmin = () => {
+            const isLocked = state.currentEvent.isLocked;
+            
+            let html = `
+                <div class="mb-4">
+                    <button onclick="window.navigate('home')" class="text-sky-600 hover:text-sky-800 text-sm mb-3 font-medium inline-flex items-center transition bg-white px-3 py-1.5 rounded-full shadow-sm border border-sky-200">
+                        <i class="fas fa-arrow-left mr-1"></i> ホームに戻る
+                    </button>
+                    <h2 class="text-xl sm:text-2xl font-bold text-sky-800 break-words leading-snug">
+                        ${escapeHtml(state.currentEvent.name)} <span class="text-sm font-normal text-gray-500 ml-1 inline-block">(管理者モード)</span>
+                    </h2>
+                </div>
+
+                <!-- タブ -->
+                <div id="admin-tabs-container" class="flex border-b border-gray-300 mb-6 overflow-x-auto custom-scrollbar">
+                    <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'entries' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('entries')"><i class="fas fa-user-plus mr-1"></i>エントリー入力</button>
+                    <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'seeding' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('seeding')"><i class="fas fa-list-ol mr-1"></i>組分け・確認</button>
+                    <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'results' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('results')"><i class="fas fa-stopwatch mr-1"></i>結果入力</button>
+                    <button class="px-4 py-3 text-sm sm:text-base ${state.adminTab === 'teamRank' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changeAdminTab('teamRank')"><i class="fas fa-flag mr-1"></i>総合得点</button>
+                </div>
+            `;
+
+            if (state.adminTab === 'entries') {
+                html += renderAdminEntries(isLocked);
+            } else if (state.adminTab === 'seeding') {
+                html += renderAdminSeeding();
+            } else if (state.adminTab === 'results') {
+                html += renderAdminResults();
+            } else if (state.adminTab === 'teamRank') {
+                html += renderTeamRankings();
+            }
+            return html;
+        };
+
+        const renderAdminEntries = (isLocked) => {
+            const lockBtnClass = isLocked ? "bg-red-500 hover:bg-red-600" : "bg-green-500 hover:bg-green-600";
+            const lockIcon = isLocked ? "fa-lock" : "fa-lock-open";
+            const lockText = isLocked ? "入力ロック解除" : "入力をロックする";
+
+            let html = `
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                    <h3 class="text-lg font-bold text-gray-700">エントリー入力</h3>
+                    <button id="toggle-lock-btn" class="${lockBtnClass} text-white px-4 py-2 rounded shadow text-sm transition w-full sm:w-auto">
+                        <i class="fas ${lockIcon} mr-1"></i> ${lockText}
+                    </button>
+                </div>
+            `;
+
+            if (!isLocked) {
+                let catOptions = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+                html += `
+                    <div class="bg-white rounded-xl shadow border-t-4 border-sky-400 p-4 sm:p-6 mb-8 w-full">
+                        <form id="add-entry-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="hidden" id="entry-id" value="">
+                            <div>
+                                <label class="block text-sm font-medium text-sky-800 mb-1">名前 <span class="text-red-500">*</span></label>
+                                <input type="text" id="entry-name" class="w-full border border-sky-300 rounded p-2 focus:ring-2 focus:ring-sky-400 focus:outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-sky-800 mb-1">チーム <span class="text-red-500">*</span></label>
+                                <input type="text" id="entry-team" list="team-options" placeholder="選択または入力" class="w-full border border-sky-300 rounded p-2 focus:ring-2 focus:ring-sky-400 focus:outline-none" required>
+                                <datalist id="team-options">
+                                    <option value="東"></option>
+                                    <option value="西"></option>
+                                    <option value="南"></option>
+                                    <option value="北"></option>
+                                    <option value="白"></option>
+                                    <option value="發"></option>
+                                    <option value="中"></option>
+                                </datalist>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-sky-800 mb-1">区分 <span class="text-red-500">*</span></label>
+                                <div class="flex gap-4 mt-2">
+                                    <label class="inline-flex items-center"><input type="radio" name="entry-type" id="type-student" value="student" class="text-sky-500 focus:ring-sky-400" checked onchange="document.getElementById('years-label').innerText='学年(数字など)'"> <span class="ml-2 text-sm">学生</span></label>
+                                    <label class="inline-flex items-center"><input type="radio" name="entry-type" id="type-ob" value="ob" class="text-sky-500 focus:ring-sky-400" onchange="document.getElementById('years-label').innerText='OB歴(年数)'"> <span class="ml-2 text-sm">OB</span></label>
+                                </div>
+                            </div>
+                            <div>
+                                <label id="years-label" class="block text-sm font-medium text-sky-800 mb-1">学年(数字など) <span class="text-red-500">*</span></label>
+                                <input type="text" id="entry-years" placeholder="例: 1 (OBならOB歴)" class="w-full border border-sky-300 rounded p-2 focus:ring-2 focus:ring-sky-400 focus:outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-sky-800 mb-1">エントリー種目 <span class="text-red-500">*</span></label>
+                                <select id="entry-category" class="w-full border border-sky-300 rounded p-2 focus:ring-2 focus:ring-sky-400 focus:outline-none bg-white">
+                                    ${catOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-sky-800 mb-1">エントリータイム</label>
+                                <input type="text" id="entry-time" placeholder="例: 1:05.23 または 65.23 (未入力可)" class="w-full border border-sky-300 rounded p-2 focus:ring-2 focus:ring-sky-400 focus:outline-none">
+                            </div>
+                            <div class="md:col-span-2 flex items-center mt-2">
+                                <label class="inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="entry-star" class="rounded text-sky-500 focus:ring-sky-400 w-5 h-5"> 
+                                    <span class="ml-2 text-gray-700 font-medium text-sm">注目選手（☆マーク）</span>
+                                </label>
+                            </div>
+                            <div class="md:col-span-2 mt-2 flex gap-2">
+                                <button type="submit" id="submit-btn" class="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 rounded shadow transition">追加する</button>
+                                <button type="button" id="cancel-edit-btn" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded shadow transition hide" onclick="cancelEdit()">キャンセル</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+            } else {
+                html += `<div class="bg-red-50 text-red-600 p-4 rounded mb-6 border border-red-200 text-sm"><i class="fas fa-lock mr-2"></i>現在は入力ロック中のため、新規追加・編集・削除はできません。</div>`;
+            }
+
+            // エントリーリスト表示 (追加順・降順)
+            html += `
+                <div class="bg-white rounded-xl shadow w-full">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left whitespace-nowrap min-w-full">
+                            <thead class="bg-sky-100 text-sky-800">
+                                <tr>
+                                    <th class="p-3">名前</th>
+                                    <th class="p-3">チーム</th>
+                                    <th class="p-3">区分</th>
+                                    <th class="p-3">種目</th>
+                                    <th class="p-3">E.Time</th>
+                                    <th class="p-3 w-20 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+            `;
+            const displayEntries = [...state.currentEntries].sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+            
+            if (displayEntries.length === 0) {
+                html += `<tr><td colspan="6" class="p-4 text-center text-gray-500">エントリーがありません。</td></tr>`;
+            } else {
+                displayEntries.forEach(entry => {
+                    const entryJson = JSON.stringify(entry).replace(/"/g, '&quot;');
+                    html += `
+                        <tr class="hover:bg-sky-50">
+                            <td class="p-3 font-medium text-gray-800">${escapeHtml(entry.name)} ${entry.isStar ? '<i class="fas fa-star text-yellow-400"></i>' : ''}</td>
+                            <td class="p-3 text-gray-600">${escapeHtml(entry.team)}</td>
+                            <td class="p-3 text-gray-600">${entry.userType === 'student' ? '学'+escapeHtml(entry.years) : 'OB'+escapeHtml(entry.years)}</td>
+                            <td class="p-3 font-medium text-sky-700">${escapeHtml(entry.category)}</td>
+                            <td class="p-3 text-gray-600">${escapeHtml(entry.entryTime) || '-'}</td>
+                            <td class="p-3 text-center flex justify-center gap-2">
+                                ${!isLocked ? `
+                                    <button class="text-sky-500 hover:text-sky-700 p-1 rounded hover:bg-sky-100" onclick="editEntry('${entryJson}')" title="編集"><i class="fas fa-pen"></i></button>
+                                    <button class="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50" onclick="deleteEntry('${entry.id}')" title="削除"><i class="fas fa-trash"></i></button>
+                                ` : `
+                                    <span class="text-gray-300"><i class="fas fa-pen"></i></span>
+                                    <span class="text-gray-300"><i class="fas fa-trash"></i></span>
+                                `}
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+            html += `</tbody></table></div></div>`;
+            
+            return html;
+        };
+
+        const renderAdminSeeding = () => {
+            let html = `
+                <div class="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <p class="text-sm text-gray-600 leading-relaxed">自動で組・レーンを割り当てた後、数値を書き換えて「手動修正を保存」で入れ替えが可能です。<br class="hidden sm:block">※突発追加の選手は対象外です。</p>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <button id="save-seeding-btn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded shadow font-bold w-full sm:w-auto whitespace-nowrap transition" onclick="saveManualSeeding()">
+                            <i class="fas fa-save mr-1"></i> 手動修正を保存
+                        </button>
+                        <button id="seeding-btn" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded shadow font-bold w-full sm:w-auto whitespace-nowrap transition" onclick="executeSeeding()">
+                            <i class="fas fa-cogs mr-1"></i> 自動組分け
+                        </button>
+                    </div>
+                </div>
+            `;
+            html += renderCategoryTabs();
+            html += renderStartListTable(state.selectedCategory);
+            
+            return html;
+        };
+
+        const renderAdminResults = () => {
+            let html = renderCategoryTabs();
+            
+            const catEntries = state.currentEntries.filter(e => e.category === state.selectedCategory);
+            const normalEntries = catEntries.filter(e => !e.isLateEntry).sort((a,b) => {
+                if (a.heat !== b.heat) return (a.heat || 99) - (b.heat || 99);
+                return (a.lane || 99) - (b.lane || 99);
+            });
+            const lateEntries = catEntries.filter(e => e.isLateEntry);
+
+            html += `
+                <div class="bg-white rounded-xl shadow w-full mb-6">
+                    <div class="bg-sky-100 p-2.5 font-bold text-sky-800 text-center border-b border-sky-200 rounded-t-xl text-sm sm:text-base">結果タイム入力</div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left min-w-[600px]">
+                            <thead class="bg-gray-50 text-gray-600 border-b">
+                                <tr>
+                                    <th class="p-2.5 text-center w-12">組</th>
+                                    <th class="p-2.5 text-center w-12">L</th>
+                                    <th class="p-2.5">名前</th>
+                                    <th class="p-2.5">チーム</th>
+                                    <th class="p-2.5">E.Time</th>
+                                    <th class="p-2.5 w-40">結果タイム(手入力)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+            `;
+
+            if (normalEntries.length === 0 && lateEntries.length === 0) {
+                html += `<tr><td colspan="6" class="p-6 text-center text-gray-500">この種目のエントリーはありません。</td></tr>`;
+            } else {
+                normalEntries.forEach(entry => {
+                    html += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="p-2.5 text-center text-gray-500">${entry.heat || '-'}</td>
+                            <td class="p-2.5 text-center font-bold text-gray-700">${entry.lane || '-'}</td>
+                            <td class="p-2.5 font-medium text-gray-800">${escapeHtml(entry.name)}</td>
+                            <td class="p-2.5 text-gray-600 truncate max-w-[120px]">${escapeHtml(entry.team)}</td>
+                            <td class="p-2.5 text-gray-500 text-xs">${escapeHtml(entry.entryTime)||'-'}</td>
+                            <td class="p-2.5">
+                                <input type="text" class="result-input w-full border border-sky-300 rounded p-1.5 text-sm focus:ring focus:ring-sky-200 focus:outline-none" data-id="${entry.id}" value="${escapeHtml(entry.resultTime||'')}" placeholder="例: 1:05.23">
+                            </td>
+                        </tr>
+                    `;
+                });
+                if (lateEntries.length > 0) {
+                    html += `<tr><td colspan="6" class="p-2.5 bg-yellow-50 text-yellow-800 font-bold text-xs border-y border-yellow-200">▼ 突発参加（組・レーンなし）</td></tr>`;
+                    lateEntries.forEach(entry => {
+                        html += `
+                            <tr class="bg-yellow-50/30 hover:bg-yellow-100/50">
+                                <td class="p-2.5 text-center text-gray-400">-</td>
+                                <td class="p-2.5 text-center text-gray-400">-</td>
+                                <td class="p-2.5 font-medium text-gray-800">${escapeHtml(entry.name)} <span class="text-[10px] text-red-500 border border-red-200 bg-red-50 px-1 rounded ml-1 whitespace-nowrap">突発</span></td>
+                                <td class="p-2.5 text-gray-600 truncate max-w-[120px]">${escapeHtml(entry.team)}</td>
+                                <td class="p-2.5 text-gray-500 text-xs">-</td>
+                                <td class="p-2.5">
+                                    <input type="text" class="result-input w-full border border-sky-300 rounded p-1.5 text-sm focus:ring focus:ring-sky-200 focus:outline-none" data-id="${entry.id}" value="${escapeHtml(entry.resultTime||'')}" placeholder="例: 1:05.23">
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+            }
+            html += `</tbody></table></div>
+                <div class="p-3 text-right text-xs text-gray-500 border-t border-gray-100">* 入力枠からフォーカスが外れると自動保存されます。</div>
+            </div>`;
+
+            let catOptions = CATEGORIES.map(c => `<option value="${c}" ${c === state.selectedCategory ? 'selected' : ''}>${c}</option>`).join('');
+            html += `
+                <div class="bg-yellow-50 border border-yellow-300 rounded-xl p-4 sm:p-6 mb-8 shadow-sm">
+                    <h3 class="text-base font-bold text-yellow-800 mb-4"><i class="fas fa-plus-circle mr-1"></i>突発参加者の追加 <span class="font-normal text-xs">(直接結果入力)</span></h3>
+                    <form id="add-late-entry-form" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+                        <div class="lg:col-span-1">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">名前</label>
+                            <input type="text" id="late-name" class="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500" required>
+                        </div>
+                        <div class="lg:col-span-1">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">チーム</label>
+                            <input type="text" id="late-team" list="late-team-options" placeholder="選択/入力" class="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500" required>
+                            <datalist id="late-team-options">
+                                <option value="東"></option>
+                                <option value="西"></option>
+                                <option value="南"></option>
+                                <option value="北"></option>
+                                <option value="白"></option>
+                                <option value="發"></option>
+                                <option value="中"></option>
+                            </datalist>
+                        </div>
+                        <div class="lg:col-span-1">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">区分・年</label>
+                            <div class="flex">
+                                <select id="late-type" class="border border-gray-300 rounded-l p-2 text-sm w-1/2 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-500">
+                                    <option value="student">学生</option>
+                                    <option value="ob">OB</option>
+                                </select>
+                                <input type="text" id="late-years" placeholder="年" class="w-1/2 border border-gray-300 border-l-0 rounded-r p-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500" required>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-1">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">種目</label>
+                            <select id="late-category" class="w-full border border-gray-300 rounded p-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-yellow-500">
+                                ${catOptions}
+                            </select>
+                        </div>
+                        <div class="lg:col-span-1">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">タイム</label>
+                            <input type="text" id="late-time" placeholder="1:05.23" class="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500" required>
+                        </div>
+                        <div class="lg:col-span-1 mt-2 sm:mt-0">
+                            <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded text-sm shadow transition">追加</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            return html;
+        };
+
+        // --- Render: Public ---
+        const renderPublic = () => {
+            let html = `
+                <div class="mb-4">
+                    <button onclick="window.navigate('home')" class="text-sky-600 hover:text-sky-800 text-sm mb-3 font-medium inline-flex items-center transition bg-white px-3 py-1.5 rounded-full shadow-sm border border-sky-200">
+                        <i class="fas fa-arrow-left mr-1"></i> ホームに戻る
+                    </button>
+                    <h2 class="text-xl sm:text-2xl font-bold text-sky-800 break-words leading-snug">${escapeHtml(state.currentEvent.name)}</h2>
+                </div>
+
+                <!-- タブ -->
+                <div class="flex border-b border-gray-300 mb-6 w-full max-w-md">
+                    <button class="flex-1 py-3 text-center text-sm sm:text-base ${state.publicTab === 'startlist' ? 'tab-active' : 'tab-inactive'}" onclick="changePublicTab('startlist')"><i class="fas fa-list mr-1"></i>スタートリスト</button>
+                    <button class="flex-1 py-3 text-center text-sm sm:text-base ${state.publicTab === 'results' ? 'tab-active' : 'tab-inactive'}" onclick="changePublicTab('results')"><i class="fas fa-trophy mr-1"></i>結果・順位</button>
+                    <button class="px-4 py-3 text-center text-sm sm:text-base ${state.publicTab === 'teamRank' ? 'tab-active' : 'tab-inactive'} whitespace-nowrap" onclick="changePublicTab('teamRank')"><i class="fas fa-flag mr-1"></i>総合得点</button>
+                </div>
+            `;
+
+            if (state.publicTab !== 'teamRank') {
+                html += renderCategoryTabs();
+            }
+
+            if (state.publicTab === 'startlist') {
+                html += renderStartListTable(state.selectedCategory, true);
+            } else if (state.publicTab === 'results') {
+                html += renderResultsTable(state.selectedCategory);
+            } else if (state.publicTab === 'teamRank') {
+                html += renderTeamRankings();
+            }
+            return html;
+        };
+
+        // 共通コンポーネント
+        const renderCategoryTabs = () => {
+            let html = `<div id="category-tabs-container" class="flex overflow-x-auto pb-3 mb-4 custom-scrollbar space-x-2">`;
+            CATEGORIES.forEach(cat => {
+                const isActive = state.selectedCategory === cat;
+                const btnClass = isActive 
+                    ? "bg-sky-500 text-white shadow-md font-bold border border-sky-500" 
+                    : "bg-white text-sky-600 border border-sky-200 hover:bg-sky-50";
+                const activeClass = isActive ? 'active' : '';
+                html += `<button class="whitespace-nowrap px-4 py-2 rounded-full text-sm transition ${btnClass} ${activeClass}" onclick="selectCategory('${cat}')">${cat}</button>`;
+            });
+            html += `</div>`;
+            return html;
+        };
+
+        const renderStartListTable = (category, isPublic = false) => {
+            const allCatEntries = state.currentEntries.filter(e => e.category === category);
+            const seededEntries = allCatEntries.filter(e => e.heat && e.lane);
+            const unseededEntries = allCatEntries.filter(e => (!e.heat || !e.lane) && !e.isLateEntry);
+            
+            let html = '';
+
+            if (unseededEntries.length > 0) {
+                if (!isPublic) {
+                    html += `<div class="bg-yellow-50 text-yellow-800 p-3 rounded-lg mb-4 border border-yellow-200 text-sm">
+                        <i class="fas fa-exclamation-triangle mr-1"></i> 新しく追加された未組分けの選手が <span class="font-bold">${unseededEntries.length}</span> 名います。上部の「自動組分け」ボタンを押してリストに反映させてください。
+                    </div>`;
+                } else {
+                    html += `<div class="bg-gray-50 text-gray-500 p-3 rounded-lg mb-4 border border-gray-200 text-sm">
+                        <i class="fas fa-info-circle mr-1"></i> 未組分けの追加エントリーがあるため、後ほどリストが更新される可能性があります。
+                    </div>`;
+                }
+            }
+
+            if (seededEntries.length === 0) {
+                html += `<div class="bg-white p-8 rounded-xl shadow text-center text-gray-500 border border-gray-100">この種目の組分けデータがありません。</div>`;
+                return html;
+            }
+
+            const heats = {};
+            seededEntries.forEach(e => {
+                if(!heats[e.heat]) heats[e.heat] = [];
+                heats[e.heat].push(e);
+            });
+
+            html += `<div class="space-y-6">`;
+            
+            Object.keys(heats).sort((a,b) => parseInt(a)-parseInt(b)).forEach(heatNum => {
+                const entriesInHeat = heats[heatNum].sort((a,b) => a.lane - b.lane);
+                html += `
+                    <div class="bg-white rounded-xl shadow w-full overflow-hidden border border-sky-100">
+                        <div class="bg-sky-50 px-4 py-2.5 font-bold text-sky-800 border-b border-sky-100 text-sm sm:text-base">
+                            第 ${heatNum} 組
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left min-w-[500px]">
+                                <thead class="text-gray-500 bg-white border-b">
+                                    <tr>
+                                        ${!isPublic ? `<th class="p-2.5 text-center w-16">組</th>` : ''}
+                                        <th class="p-2.5 text-center w-12">L</th>
+                                        <th class="p-2.5">名前</th>
+                                        <th class="p-2.5">チーム</th>
+                                        <th class="p-2.5 text-center w-20">区分</th>
+                                        ${!isPublic ? `<th class="p-2.5 text-right w-24">E.Time</th>` : ''}
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                `;
+                // 1レーンは非表示とし、2〜6レーンを描画
+                for (let i = 2; i <= 6; i++) {
+                    const entry = entriesInHeat.find(e => e.lane === i);
+                    if (entry) {
+                        html += `
+                            <tr class="hover:bg-gray-50 transition">
+                                ${!isPublic ? `<td class="p-2.5 text-center"><input type="number" class="manual-heat w-12 p-1 text-center border border-gray-300 rounded bg-white text-sm focus:ring focus:ring-sky-300 outline-none" data-id="${entry.id}" value="${entry.heat}"></td>` : ''}
+                                <td class="p-2.5 text-center font-bold text-sky-700 bg-sky-50/50">
+                                    ${!isPublic ? `<input type="number" class="manual-lane w-12 p-1 text-center border border-gray-300 rounded bg-white text-sm focus:ring focus:ring-sky-300 outline-none" data-id="${entry.id}" value="${entry.lane}">` : i}
+                                </td>
+                                <td class="p-2.5 font-medium text-gray-800 text-base whitespace-nowrap">
+                                    ${escapeHtml(entry.name)} 
+                                    ${entry.isStar ? '<i class="fas fa-star text-yellow-400 text-xs ml-1" title="注目選手"></i>' : ''}
+                                </td>
+                                <td class="p-2.5 text-gray-600 truncate max-w-[120px]">${escapeHtml(entry.team)}</td>
+                                <td class="p-2.5 text-center text-xs text-gray-500">${entry.userType === 'student' ? '学'+escapeHtml(entry.years) : 'OB'+escapeHtml(entry.years)}</td>
+                                ${!isPublic ? `<td class="p-2.5 text-right text-xs text-gray-400">${escapeHtml(entry.entryTime)||''}</td>` : ''}
+                            </tr>
+                        `;
+                    } else {
+                        html += `
+                            <tr>
+                                ${!isPublic ? `<td class="p-2.5 text-center">-</td>` : ''}
+                                <td class="p-2.5 text-center text-gray-400 bg-gray-50/50">${i}</td>
+                                <td class="p-2.5 text-gray-400 italic" colspan="${!isPublic ? 4 : 3}">空き</td>
+                            </tr>
+                        `;
+                    }
+                }
+                html += `</tbody></table></div></div>`;
+            });
+            html += `</div>`;
+            return html;
+        };
+
+        const renderResultsTable = (category) => {
+            const results = getCategoryResults(category);
+            
+            if (results.length === 0) {
+                return `<div class="bg-white p-8 rounded-xl shadow text-center text-gray-500 border border-gray-100">まだ結果が入力されていません。</div>`;
+            }
+
+            let html = `
+                <div class="bg-white rounded-xl shadow w-full overflow-hidden border border-sky-100">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left min-w-[500px]">
+                            <thead class="bg-sky-50 text-sky-800 border-b border-sky-200">
+                                <tr>
+                                    <th class="p-3 text-center w-14 font-bold">順位</th>
+                                    <th class="p-3 font-bold">名前</th>
+                                    <th class="p-3 font-bold">チーム</th>
+                                    <th class="p-3 text-center font-bold">最終タイム</th>
+                                    <th class="p-3 text-right font-bold text-gray-500 text-xs">元の記録(ハンデ)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+            `;
+
+            results.forEach((res) => {
+                let rankDisplay = res.isDQ ? `<span class="text-red-500 font-bold text-xs">DQ</span>` : res.rank;
+                
+                if (!res.isDQ) {
+                    if (res.rank === 1) rankDisplay = `<i class="fas fa-medal text-yellow-400 text-lg drop-shadow-sm"></i>`;
+                    else if (res.rank === 2) rankDisplay = `<i class="fas fa-medal text-gray-400 text-lg drop-shadow-sm"></i>`;
+                    else if (res.rank === 3) rankDisplay = `<i class="fas fa-medal text-amber-600 text-lg drop-shadow-sm"></i>`;
+                }
+
+                const isOB = res.userType === 'ob';
+                const hc = isOB ? parseInt(res.years) || 0 : 0;
+                let originalTimeHtml = `<span class="text-gray-400">${escapeHtml(res.resultTime)}</span>`;
+                if (hc > 0) {
+                    originalTimeHtml += `<br><span class="text-red-400 text-[10px]">(-${hc}秒)</span>`;
+                }
+
+                let timeClass = res.isDQ ? "text-red-500 line-through" : "text-sky-700";
+                let dqBadge = res.isDQ ? `<div class="text-red-500 text-[10px] mt-0.5">失格(1分超過)</div>` : '';
+                let pointsBadge = res.points > 0 ? `<div class="text-sky-500 font-bold text-xs mt-0.5">+${res.points}pt</div>` : '';
+
+                html += `
+                    <tr class="hover:bg-sky-50 transition ${res.isDQ ? 'bg-red-50/30' : ''}">
+                        <td class="p-3 text-center font-bold text-gray-700">${rankDisplay}</td>
+                        <td class="p-3 font-medium text-base text-gray-800 whitespace-nowrap">
+                            ${escapeHtml(res.name)} 
+                            ${res.isStar ? '<i class="fas fa-star text-yellow-400 text-xs ml-1"></i>' : ''}
+                            ${res.isLateEntry ? '<span class="text-[10px] text-white bg-sky-300 px-1.5 py-0.5 rounded ml-1 shadow-sm font-normal">突発</span>' : ''}
+                        </td>
+                        <td class="p-3 text-gray-600 truncate max-w-[120px]">${escapeHtml(res.team)}</td>
+                        <td class="p-3 text-center font-bold ${timeClass} text-lg tracking-wider">
+                            ${formatTime(res.finalTimeSec)}
+                            ${dqBadge}
+                            ${pointsBadge}
+                        </td>
+                        <td class="p-3 text-right text-xs leading-tight">${originalTimeHtml}</td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table></div></div>
+                <div class="mt-4 p-3 bg-sky-50 text-sky-800 text-xs rounded border border-sky-100 flex items-start">
+                    <i class="fas fa-info-circle mt-0.5 mr-2 text-sky-500"></i> 
+                    <span>OBの最終タイムは、記録から (OB歴年数 × 1秒) を引いたタイムとなります。<br>1位:8点, 2位:7点... がチームの総合得点に加算されます。</span>
+                </div>
+            `;
+            return html;
+        };
+
+        const renderTeamRankings = () => {
+            const teamScores = {};
+            
+            // 全種目の結果を集計
+            CATEGORIES.forEach(cat => {
+                const catResults = getCategoryResults(cat);
+                catResults.forEach(res => {
+                    if (!res.team) return;
+                    
+                    if (!teamScores[res.team]) {
+                        teamScores[res.team] = { name: res.team, total: 0, relayTotal: 0 };
+                    }
+                    
+                    teamScores[res.team].total += res.points;
+                    
+                    if (cat === "100mMR" || cat === "100mFR") {
+                        teamScores[res.team].relayTotal += res.points;
+                    }
+                });
+            });
+
+            // 配列に変換してソート (総合得点降順 -> 同点時はリレー得点降順)
+            const rankingArray = Object.values(teamScores).sort((a, b) => {
+                if (b.total !== a.total) {
+                    return b.total - a.total; 
+                }
+                return b.relayTotal - a.relayTotal;
+            });
+
+            let html = `
+                <div class="bg-white rounded-xl shadow w-full overflow-hidden border border-sky-100 mb-6">
+                    <div class="bg-sky-50 px-4 py-3 font-bold text-sky-800 border-b border-sky-200 text-sm sm:text-base flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                        <span><i class="fas fa-flag-checkered mr-2"></i>チーム対抗 総合得点</span>
+                        <span class="text-xs font-normal text-sky-600 bg-white px-2 py-1 rounded border border-sky-200 shadow-sm w-fit">※同点時はリレー(MR/FR)の合計点で判定</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left min-w-[400px]">
+                            <thead class="text-gray-500 bg-white border-b">
+                                <tr>
+                                    <th class="p-3 text-center w-16">順位</th>
+                                    <th class="p-3">チーム</th>
+                                    <th class="p-3 text-center font-bold text-sky-600">総合得点</th>
+                                    <th class="p-3 text-center text-xs">リレー得点<br>(タイブレーク)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+            `;
+
+            if (rankingArray.length === 0) {
+                html += `<tr><td colspan="4" class="p-8 text-center text-gray-500">まだ得点データがありません。</td></tr>`;
+            } else {
+                let currentRank = 1;
+                let prevTotal = -1;
+                let prevRelay = -1;
+
+                rankingArray.forEach((team, idx) => {
+                    // 同点・同リレー点数の場合は同じ順位にする
+                    if (team.total !== prevTotal || team.relayTotal !== prevRelay) {
+                        currentRank = idx + 1;
+                        prevTotal = team.total;
+                        prevRelay = team.relayTotal;
+                    }
+
+                    let rankDisplay = currentRank;
+                    if (currentRank === 1) rankDisplay = `<i class="fas fa-trophy text-yellow-500 text-xl drop-shadow-sm"></i>`;
+                    else if (currentRank === 2) rankDisplay = `<i class="fas fa-trophy text-gray-400 text-lg drop-shadow-sm"></i>`;
+                    else if (currentRank === 3) rankDisplay = `<i class="fas fa-trophy text-amber-600 text-lg drop-shadow-sm"></i>`;
+
+                    html += `
+                        <tr class="hover:bg-sky-50 transition">
+                            <td class="p-3 text-center font-bold text-gray-700">${rankDisplay}</td>
+                            <td class="p-3 font-bold text-gray-800 text-lg">${escapeHtml(team.name)}</td>
+                            <td class="p-3 text-center font-bold text-sky-600 text-2xl">${team.total} <span class="text-sm font-normal text-sky-500">pt</span></td>
+                            <td class="p-3 text-center text-gray-500">${team.relayTotal} <span class="text-xs">pt</span></td>
+                        </tr>
+                    `;
+                });
+            }
+
+            html += `</tbody></table></div></div>
+                <div class="mt-4 p-4 bg-sky-50 text-sky-800 text-xs sm:text-sm rounded border border-sky-100 flex flex-col gap-2">
+                    <div class="font-bold border-b border-sky-200 pb-2 mb-1"><i class="fas fa-balance-scale mr-1 text-sky-500"></i> 得点・ルールについて</div>
+                    <div class="flex items-start"><i class="fas fa-check text-sky-400 mt-1 mr-2"></i> 各種目の上位から順に 8点, 7点, 6点, 5点, 4点, 3点, 2点, 1点 がチームに付与されます。</div>
+                    <div class="flex items-start"><i class="fas fa-check text-sky-400 mt-1 mr-2"></i> 9位以下の選手、および失格者は 0点 となります。</div>
+                    <div class="flex items-start"><i class="fas fa-check text-sky-400 mt-1 mr-2"></i> 1分間レースは目標タイム「1:00.00」を 0.01秒 でも超えた時点で失格です。失格者以外の中でタイムがより大きい（1分に近い）人が上位となります。</div>
+                </div>
+            `;
+
+            return html;
+        };
+
+        // Window exposed functions for UI interactions
+        window.changeAdminTab = (tab) => { state.adminTab = tab; render(); };
+        window.changePublicTab = (tab) => { state.publicTab = tab; render(); };
+        window.selectCategory = (cat) => { state.selectedCategory = cat; render(); };
+
+        const scrollActiveCategoryIntoView = () => {
+            const tabContainer = document.getElementById('category-tabs-container');
+            if (!tabContainer) return;
+            const activeButton = tabContainer.querySelector('button.active');
+            if (!activeButton) return;
+
+            activeButton.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+        };
+
+        window.editEntry = (jsonStr) => {
+            if (state.currentEvent.isLocked) return;
+            const entry = JSON.parse(jsonStr);
+            document.getElementById('entry-id').value = entry.id;
+            document.getElementById('entry-name').value = entry.name;
+            document.getElementById('entry-team').value = entry.team;
+            if (entry.userType === 'ob') {
+                document.getElementById('type-ob').checked = true;
+                document.getElementById('years-label').innerText = 'OB歴(年数)';
+            } else {
+                document.getElementById('type-student').checked = true;
+                document.getElementById('years-label').innerText = '学年(数字など)';
+            }
+            document.getElementById('entry-years').value = entry.years;
+            document.getElementById('entry-category').value = entry.category;
+            document.getElementById('entry-time').value = entry.entryTime;
+            document.getElementById('entry-star').checked = entry.isStar;
+            
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.innerText = '更新する';
+            submitBtn.classList.remove('bg-sky-500', 'hover:bg-sky-600');
+            submitBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+            document.getElementById('cancel-edit-btn').classList.remove('hide');
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        window.cancelEdit = () => {
+            document.getElementById('add-entry-form').reset();
+            document.getElementById('entry-id').value = '';
+            document.getElementById('years-label').innerText = '学年(数字など)';
+            
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.innerText = '追加する';
+            submitBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+            submitBtn.classList.add('bg-sky-500', 'hover:bg-sky-600');
+            document.getElementById('cancel-edit-btn').classList.add('hide');
+        };
+        
+        // Form submits and actions using global scope for event delegation
+        document.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Create Event
+            if (e.target.id === 'create-event-form') {
+                const name = document.getElementById('new-event-name').value;
+                try {
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'swim_events'), {
+                        name: name,
+                        isLocked: false,
+                        createdAt: serverTimestamp()
+                    });
+                    window.navigate('admin', docRef.id);
+                } catch (err) {
+                    console.error(err);
+                    alert('作成に失敗しました');
+                }
+            }
+            
+            // Add or Edit Entry
+            if (e.target.id === 'add-entry-form') {
+                if (state.currentEvent.isLocked) { alert('ロック中のため追加・編集できません'); return; }
+                
+                const entryId = document.getElementById('entry-id').value;
+                const data = {
+                    eventId: state.eventId,
+                    name: document.getElementById('entry-name').value,
+                    team: document.getElementById('entry-team').value,
+                    userType: document.querySelector('input[name="entry-type"]:checked').value,
+                    years: document.getElementById('entry-years').value,
+                    category: document.getElementById('entry-category').value,
+                    entryTime: document.getElementById('entry-time').value || '',
+                    isStar: document.getElementById('entry-star').checked,
+                };
+                
+                try {
+                    if (entryId) {
+                        // Update
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', entryId), data);
+                        window.cancelEdit();
+                    } else {
+                        // Add new
+                        data.createdAt = serverTimestamp();
+                        data.heat = null;
+                        data.lane = null;
+                        data.resultTime = null;
+                        data.isLateEntry = false;
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'swim_entries'), data);
+                        e.target.reset();
+                        document.getElementById('entry-category').value = data.category; // restore cat
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('保存に失敗しました');
+                }
+            }
+
+            // Add Late Entry (突発参加)
+            if (e.target.id === 'add-late-entry-form') {
+                const data = {
+                    eventId: state.eventId,
+                    name: document.getElementById('late-name').value,
+                    team: document.getElementById('late-team').value,
+                    userType: document.getElementById('late-type').value,
+                    years: document.getElementById('late-years').value,
+                    category: document.getElementById('late-category').value,
+                    entryTime: '',
+                    isStar: false,
+                    createdAt: serverTimestamp(),
+                    heat: null,
+                    lane: null,
+                    resultTime: document.getElementById('late-time').value,
+                    isLateEntry: true
+                };
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'swim_entries'), data);
+                    e.target.reset();
+                    document.getElementById('late-category').value = data.category;
+                } catch (err) {
+                    console.error(err);
+                    alert('追加に失敗しました');
+                }
+            }
+        });
+
+        // Toggle Lock
+        document.addEventListener('click', async (e) => {
+            const toggleBtn = e.target.closest('#toggle-lock-btn');
+            if (toggleBtn) {
+                const newStatus = !state.currentEvent.isLocked;
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'swim_events', state.eventId), {
+                        isLocked: newStatus
+                    });
+                } catch(err) { console.error(err); }
+            }
+        });
+
+        window.deleteEntry = async (id) => {
+            if (state.currentEvent.isLocked) return;
+            if (confirm('本当に削除しますか？')) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', id));
+                } catch(err) { console.error(err); }
+            }
+        };
+
+        // Result Input Auto-save
+        document.addEventListener('change', async (e) => {
+            if (e.target.classList.contains('result-input')) {
+                const id = e.target.dataset.id;
+                const val = e.target.value;
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', id), {
+                        resultTime: val
+                    });
+                    e.target.classList.add('bg-green-100');
+                    setTimeout(() => e.target.classList.remove('bg-green-100'), 1000);
+                } catch (err) {
+                    console.error(err);
+                    e.target.classList.add('bg-red-100');
+                }
+            }
+        });
+
+        // Manual Seeding Save
+        window.saveManualSeeding = async () => {
+            const heatInputs = document.querySelectorAll('.manual-heat');
+            const updates = [];
+            
+            heatInputs.forEach(input => {
+                const id = input.dataset.id;
+                const heat = parseInt(input.value);
+                const laneInput = document.querySelector(`.manual-lane[data-id="${id}"]`);
+                const lane = parseInt(laneInput.value);
+                
+                if (isNaN(heat) || isNaN(lane)) return;
+
+                const entry = state.currentEntries.find(e => e.id === id);
+                // 元のデータから変更があった場合のみ更新対象とする
+                if (entry && (entry.heat !== heat || entry.lane !== lane)) {
+                    updates.push({ id, heat, lane });
+                }
+            });
+            
+            if (updates.length === 0) {
+                alert('変更されたデータがありません。');
+                return;
+            }
+            
+            if (!confirm(`${updates.length}件の変更を保存して閲覧ページに反映しますか？`)) return;
+            
+            const btn = document.getElementById('save-seeding-btn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+            
+            try {
+                // Firestoreを一括で更新
+                for (let u of updates) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', u.id), {
+                        heat: u.heat,
+                        lane: u.lane
+                    });
+                }
+                alert('変更を保存しました！');
+            } catch (err) {
+                console.error(err);
+                alert('保存に失敗しました。');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        };
+
+        // Seeding Algorithm
+        window.executeSeeding = async () => {
+            if(!confirm('全種目の自動組分けを実行しますか？（※これまでの手動修正は上書きされます）')) return;
+            
+            const updates = [];
+            CATEGORIES.forEach(cat => {
+                const catEntries = state.currentEntries.filter(e => e.category === cat && !e.isLateEntry);
+                
+                catEntries.sort((a, b) => {
+                    const timeA = parseTime(a.entryTime);
+                    const timeB = parseTime(b.entryTime);
+                    
+                    if (timeA === Infinity && timeB === Infinity) return 0;
+                    if (timeA === Infinity) return -1;
+                    if (timeB === Infinity) return 1;
+                    
+                    return timeB - timeA;
+                });
+
+                // 2,3,4,5,6レーンのみ使用、速い順で4,5,3,6,2
+                const laneOrder = [4, 5, 3, 6, 2];
+                const lanesCount = 5;
+                let currentHeatNum = 1;
+
+                for (let i = 0; i < catEntries.length; i += lanesCount) {
+                    const heatGroup = catEntries.slice(i, i + lanesCount);
+                    const heatFastestFirst = [...heatGroup].reverse();
+
+                    heatFastestFirst.forEach((entry, idx) => {
+                        if (idx < laneOrder.length) {
+                            updates.push({
+                                id: entry.id,
+                                heat: currentHeatNum,
+                                lane: laneOrder[idx]
+                            });
+                        }
+                    });
+                    currentHeatNum++;
+                }
+            });
+
+            if (updates.length === 0) {
+                alert('組分け対象となるエントリーがありません。（※突発参加の選手は自動組分けの対象外です）');
+                return;
+            }
+
+            const btn = document.getElementById('seeding-btn');
+            if(btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 処理中...';
+            }
+            
+            try {
+                for(let u of updates) {
+                    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'swim_entries', u.id);
+                    await updateDoc(ref, { heat: u.heat, lane: u.lane });
+                }
+                alert('自動組分けが完了しました！');
+            } catch (err) {
+                console.error(err);
+                alert('エラーが発生しました。');
+            } finally {
+                if(btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-cogs mr-1"></i> 自動組分け';
+                }
+                render();
+            }
+        };
+
+        // Initialization
+        const initApp = async () => {
+            parseUrl();
+            
+            try {
+                // 自動的に匿名認証でログインする (プレビュー環境ではカスタムトークンを優先)
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth error:", error);
+                document.getElementById('loading-text').innerText = "認証エラー: FirebaseのAPIキーまたは設定を確認してください。";
+                return; // ここでエラーになったら処理を止める
+            }
+
+            // 認証状態の監視
+            onAuthStateChanged(auth, (u) => {
+                user = u;
+                if (user) {
+                    setupListeners(); // データの取得を開始（この中でrender()が呼ばれて画面が出る）
+                } else {
+                    render(); // 通常は匿名ログインしているので呼ばれない
+                }
+            });
+        };
+
+        const setupListeners = () => {
+            if (state.unsubscribeEvents) state.unsubscribeEvents();
+            if (state.unsubscribeEntries) state.unsubscribeEntries();
+
+            state.unsubscribeEvents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'swim_events'), 
+                (snapshot) => {
+                    state.events = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    updateCurrentState();
+                    render();
+                },
+                (err) => {
+                    console.error("Events fetch error:", err);
+                    document.getElementById('loading-text').innerText = "データ読み込みエラー: Firestoreのルール(テストモード等)を確認してください。";
+                }
+            );
+
+            state.unsubscribeEntries = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'swim_entries'), 
+                (snapshot) => {
+                    state.allEntries = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                    updateCurrentState();
+                    render();
+                },
+                (err) => console.error("Entries fetch error:", err)
+            );
+        };
+        // Start App
+        initApp();
+
+    </script>
+</body>
+</html>
