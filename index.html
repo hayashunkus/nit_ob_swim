@@ -292,8 +292,6 @@
             const navActions = document.getElementById('nav-actions');
             const navTitle = document.getElementById('nav-title');
 
-            // 【追加】再描画前のスクロール位置を記憶
-            const categoryScrollPos = document.getElementById('category-tabs-container')?.scrollLeft || 0;
             const adminTabsScrollPos = document.getElementById('admin-tabs-container')?.scrollLeft || 0;
 
             navTitle.onclick = () => window.navigate('home');
@@ -313,6 +311,7 @@
                 }
                 navActions.innerHTML = ``; // 閲覧画面はアクションボタンなし
                 appDiv.innerHTML = renderPublic();
+                requestAnimationFrame(scrollActiveCategoryIntoView);
                 return;
             }
 
@@ -331,13 +330,12 @@
                 appDiv.innerHTML = `<div class="text-center p-10"><p>イベントが見つかりません。</p><button class="mt-4 bg-sky-500 text-white px-4 py-2 rounded" onclick="window.navigate('home')">ホームに戻る</button></div>`;
             }
 
-            // 【追加】再描画後にスクロール位置を復元
+            // 【追加】再描画後にスクロール位置を復元／選択中の種目が見える位置へ移動
             requestAnimationFrame(() => {
-                const newCategoryTabs = document.getElementById('category-tabs-container');
-                if (newCategoryTabs) newCategoryTabs.scrollLeft = categoryScrollPos;
-
                 const newAdminTabs = document.getElementById('admin-tabs-container');
                 if (newAdminTabs) newAdminTabs.scrollLeft = adminTabsScrollPos;
+
+                scrollActiveCategoryIntoView();
             });
         };
 
@@ -699,7 +697,9 @@
                 </div>
             `;
 
-            html += renderCategoryTabs();
+            if (state.publicTab !== 'teamRank') {
+                html += renderCategoryTabs();
+            }
 
             if (state.publicTab === 'startlist') {
                 html += renderStartListTable(state.selectedCategory, true);
@@ -713,13 +713,14 @@
 
         // 共通コンポーネント
         const renderCategoryTabs = () => {
-            let html = `<div id="category-tabs-container" class="flex overflow-x-auto pb-3 mb-4 custom-scrollbar space-x-2 snap-x">`;
+            let html = `<div id="category-tabs-container" class="flex overflow-x-auto pb-3 mb-4 custom-scrollbar space-x-2">`;
             CATEGORIES.forEach(cat => {
                 const isActive = state.selectedCategory === cat;
                 const btnClass = isActive 
                     ? "bg-sky-500 text-white shadow-md font-bold border border-sky-500" 
                     : "bg-white text-sky-600 border border-sky-200 hover:bg-sky-50";
-                html += `<button class="whitespace-nowrap px-4 py-2 rounded-full text-sm transition snap-start ${btnClass}" onclick="selectCategory('${cat}')">${cat}</button>`;
+                const activeClass = isActive ? 'active' : '';
+                html += `<button class="whitespace-nowrap px-4 py-2 rounded-full text-sm transition ${btnClass} ${activeClass}" onclick="selectCategory('${cat}')">${cat}</button>`;
             });
             html += `</div>`;
             return html;
@@ -979,6 +980,15 @@
         window.changeAdminTab = (tab) => { state.adminTab = tab; render(); };
         window.changePublicTab = (tab) => { state.publicTab = tab; render(); };
         window.selectCategory = (cat) => { state.selectedCategory = cat; render(); };
+
+        const scrollActiveCategoryIntoView = () => {
+            const tabContainer = document.getElementById('category-tabs-container');
+            if (!tabContainer) return;
+            const activeButton = tabContainer.querySelector('button.active');
+            if (!activeButton) return;
+
+            activeButton.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+        };
 
         window.editEntry = (jsonStr) => {
             if (state.currentEvent.isLocked) return;
